@@ -5,7 +5,7 @@ The application is split into two projects:
 - `frontend/` contains the React interface, built with Vite.
 - `backend/` contains the Express and MongoDB API.
 
-This is a localhost-only project.
+The project supports local development and a Vercel multi-service deployment.
 
 ## Run locally
 
@@ -43,6 +43,17 @@ The static frontend can also be served separately after building it. The API can
    ```
 
 The React app uses `http://localhost:5000/api` for local API requests. Set `VITE_API_URL` to override the API base URL.
+
+## Deploy on Vercel
+
+The root `vercel.json` defines two services in one Vercel project: the Vite frontend and the Express API. The frontend is routed at `/`; `/api` and `/api/*` are routed to the backend, preserving the API paths used by Express. The frontend uses same-origin `/api` requests in production, so leave `VITE_API_URL` unset unless you intentionally use a separate API host.
+
+Configure these environment variables in the Vercel project for Preview and Production:
+
+- `MONGO_URI`: the MongoDB connection string for the deployment.
+- `JWT_SECRET`: a unique, long random value used to sign login tokens.
+
+Do not commit production values. Run `vercel dev --local` from the repository root to exercise the services and their routing locally.
 
 ## Quality checks
 

@@ -19,6 +19,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const mongoDbName = 'pocketsplit';
 const mongoUri = withDatabaseName(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/pocketsplit');
+let databaseConnectionPromise;
 
 function withDatabaseName(uri) {
   const parsedUri = new URL(uri);
@@ -36,6 +37,24 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
   origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()) : true,
 }));
+app.use((req, res, next) => {
+  if (process.env.VERCEL !== '1' || !(req.path === '/api' || req.path.startsWith('/api/'))) {
+    return next();
+  }
+  if (mongoose.connection.readyState === 1) return next();
+
+  if (!databaseConnectionPromise) {
+    databaseConnectionPromise = connectToDatabase({ required: true }).catch((error) => {
+      databaseConnectionPromise = null;
+      throw error;
+    });
+  }
+
+  return databaseConnectionPromise.then(
+    () => next(),
+    () => res.status(503).json({ error: 'Database unavailable' }),
+  );
+});
 app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false }));
 app.use(express.json({ limit: '100kb' }));
 
@@ -93,7 +112,10 @@ const connectWithDirectAtlasHosts = async () => {
     console.log(`MongoDB connected successfully via direct host URI (database: ${mongoose.connection.name})`);
 };
 
-const connectToDatabase = async () => {
+const connectToDatabase = async ({ required = false } = {}) => {
+  if (mongoose.connection.readyState === 1) return true;
+
+  let lastError;
   try {
     await mongoose.connect(mongoUri, {
       dbName: mongoDbName,
@@ -101,8 +123,9 @@ const connectToDatabase = async () => {
       connectTimeoutMS: 5000,
     });
     console.log(`MongoDB connected successfully (database: ${mongoose.connection.name})`);
-    return;
+    return true;
   } catch (err) {
+    lastError = err;
     console.log(`MongoDB connection failed: ${err.message}`);
   }
 
@@ -110,13 +133,17 @@ const connectToDatabase = async () => {
   if (mongoUri.includes('mongodb+srv')) {
     try {
       await connectWithDirectAtlasHosts();
-      return;
+      return true;
     } catch (err) {
+      lastError = err;
       console.log(`MongoDB direct host connection failed: ${err.message}`);
     }
   }
 
+  if (required) throw lastError || new Error('MongoDB connection failed.');
+
   console.log('The server will keep running, but database features will be unavailable until MongoDB is reachable.');
+  return false;
 };
 
 const startServer = async () => {
